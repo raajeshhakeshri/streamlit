@@ -56,32 +56,32 @@ min_total = st.sidebar.slider("Minimum Total for Pair Match", min_value=1, max_v
 
 run_button = st.sidebar.button("Run Lookup & Analysis", type="primary")
 
-# ------------------------- NEW FEATURE: LIVE CMP & 9:15 OPEN ------------------------------
-st.subheader("📊 Live Index Tracker (CMP & 9:15 Open Price)")
+# ------------------------- LIVE CMP & 9:15 OPEN (USES SELECTED DATE) ------------------------------
+st.subheader("📊 Index Tracker (CMP & Selected Date 9:15 Open)")
 if st.button("🔄 Get Latest CMP & 9:15 Open"):
     try:
-        with st.spinner("Fetching live index data..."):
+        with st.spinner("Fetching index data..."):
             smart_temp = SmartConnect(api_key=API_KEY)
             res_temp = smart_temp.generateSession(CLIENT_CODE, PIN, pyotp.TOTP(TOTP_SECRET).now())
             if res_temp and res_temp.get("status"):
-                today_str = date.today().strftime("%Y-%m-%d")
+                selected_date_str = d_text.strftime("%Y-%m-%d")
                 col1, col2 = st.columns(2)
                 
                 for i, (idx_key, idx_cfg) in enumerate(INDICES.items()):
                     target_col = col1 if i == 0 else col2
                     with target_col:
                         try:
-                            # Fetch LTP
+                            # Fetch LTP (CMP)
                             ltp_res = smart_temp.ltpData(idx_cfg["spot_exch"], idx_cfg["spot_symbol"], idx_cfg["spot_token"])
                             cmp_val = ltp_res["data"]["ltp"] if ltp_res and "data" in ltp_res else "N/A"
                             
-                            # Fetch 9:15 Open Price using 1-minute candle
+                            # Fetch 9:15 Open Price using the sidebar Date selection (d_text)
                             candle_params = {
                                 "exchange": idx_cfg["spot_exch"],
                                 "symboltoken": idx_cfg["spot_token"],
                                 "interval": "ONE_MINUTE",
-                                "fromdate": f"{today_str} 09:15",
-                                "todate": f"{today_str} 09:16",
+                                "fromdate": f"{selected_date_str} 09:15",
+                                "todate": f"{selected_date_str} 09:16",
                             }
                             candle_res = smart_temp.getCandleData(candle_params)
                             open_val = "N/A"
@@ -90,7 +90,7 @@ if st.button("🔄 Get Latest CMP & 9:15 Open"):
                                 
                             st.markdown(f"#### {idx_key}")
                             st.metric("Current Market Price (CMP)", f"{cmp_val}")
-                            st.metric("9:15 AM Open Price", f"{open_val}")
+                            st.metric(f"9:15 AM Open Price ({selected_date_str})", f"{open_val}")
                         except Exception as e_inner:
                             st.error(f"Error fetching {idx_key}: {e_inner}")
             else:
