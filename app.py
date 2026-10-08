@@ -9,26 +9,26 @@ import streamlit as st
 
 # ------------------------- STREAMLIT PAGE CONFIG ------------------------------
 st.set_page_config(
-    page_title="Ultimatic Option Math Magic",
+    page_title="Angel One Option Candle Lookup",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("Option Magic")
-st.markdown("Option Brahmastra")
+st.title("Angel One SmartAPI - Option Candle & Pair Analyzer")
+st.markdown("Look up 5-minute candles for a strike and its -3 / +3 neighbours, and analyze CE/PE matching ranges.")
 
 # ------------------------- SECRETS ------------------------------
 API_KEY = st.secrets["angel"]["API_KEY"]
 CLIENT_CODE = st.secrets["angel"]["CLIENT_CODE"]
 PIN = st.secrets["angel"]["PIN"]
 TOTP_SECRET = st.secrets["angel"]["TOTP_SECRET"]
-# ----------------------------------------------------------------
+# ----------------------------------------------------------------------
 
 # ------------------------- SIDEBAR INPUTS ------------------------------
 st.sidebar.header("Lookup Parameters")
 INDICES = {
-    "NIFTY": dict(opt_exch="NFO", step=50),
-    "SENSEX": dict(opt_exch="BFO", step=100),
+    "NIFTY": dict(opt_exch="NFO", step=50, spot_exch="NSE", spot_token="99926000", spot_symbol="NIFTY"),
+    "SENSEX": dict(opt_exch="BFO", step=100, spot_exch="BSE", spot_token="99919000", spot_symbol="SENSEX"),
 }
 N_AROUND = 3                 # strikes on each side
 CALL_DELAY = 1.2             # seconds between API calls (Angel rate-limits aggressively)
@@ -56,11 +56,55 @@ min_total = st.sidebar.slider("Minimum Total for Pair Match", min_value=1, max_v
 
 run_button = st.sidebar.button("Run Lookup & Analysis", type="primary")
 
+# ------------------------- NEW FEATURE: LIVE CMP & 9:15 OPEN ------------------------------
+st.subheader("📊 Live Index Tracker (CMP & 9:15 Open Price)")
+if st.button("🔄 Get Latest CMP & 9:15 Open"):
+    try:
+        with st.spinner("Fetching live index data..."):
+            smart_temp = SmartConnect(api_key=API_KEY)
+            res_temp = smart_temp.generateSession(CLIENT_CODE, PIN, pyotp.TOTP(TOTP_SECRET).now())
+            if res_temp and res_temp.get("status"):
+                today_str = date.today().strftime("%Y-%m-%d")
+                col1, col2 = st.columns(2)
+                
+                for i, (idx_key, idx_cfg) in enumerate(INDICES.items()):
+                    target_col = col1 if i == 0 else col2
+                    with target_col:
+                        try:
+                            # Fetch LTP
+                            ltp_res = smart_temp.ltpData(idx_cfg["spot_exch"], idx_cfg["spot_symbol"], idx_cfg["spot_token"])
+                            cmp_val = ltp_res["data"]["ltp"] if ltp_res and "data" in ltp_res else "N/A"
+                            
+                            # Fetch 9:15 Open Price using 1-minute candle
+                            candle_params = {
+                                "exchange": idx_cfg["spot_exch"],
+                                "symboltoken": idx_cfg["spot_token"],
+                                "interval": "ONE_MINUTE",
+                                "fromdate": f"{today_str} 09:15",
+                                "todate": f"{today_str} 09:16",
+                            }
+                            candle_res = smart_temp.getCandleData(candle_params)
+                            open_val = "N/A"
+                            if candle_res and "data" in candle_res and candle_res["data"]:
+                                open_val = candle_res["data"][0][1] # index 1 is open price
+                                
+                            st.markdown(f"#### {idx_key}")
+                            st.metric("Current Market Price (CMP)", f"{cmp_val}")
+                            st.metric("9:15 AM Open Price", f"{open_val}")
+                        except Exception as e_inner:
+                            st.error(f"Error fetching {idx_key}: {e_inner}")
+            else:
+                st.error("Failed to login to Angel One API.")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+
+st.markdown("---")
+
 # ------------------------- CORE FUNCTIONS ------------------------------
 
-def login(api_key, client_code, pin, totp_secret):
-    smart = SmartConnect(api_key=api_key)
-    res = smart.generateSession(client_code, pin, pyotp.TOTP(totp_secret).now())
+def login():
+    smart = SmartConnect(api_key=API_KEY)
+    res = smart.generateSession(CLIENT_CODE, PIN, pyotp.TOTP(TOTP_SECRET).now())
     if not res or not res.get("status"):
         raise RuntimeError(f"Login failed: {res}")
     return smart
@@ -161,59 +205,56 @@ def compare_pairs(df, min_total=6):
 # ------------------------- EXECUTION FLOW ------------------------------
 
 if run_button:
-    if API_KEY == "YOUR_API_KEY" or CLIENT_CODE == "YOUR_CLIENT_CODE" or PIN == "YOUR_PIN" or TOTP_SECRET == "YOUR_TOTP_SECRET":
-        st.error("Please update your actual API credentials in the code under the FILL THESE IN section.")
-    else:
-        try:
-            # Validate inputs
-            hh, mm = map(int, t_text.split(":"))
-            candle_start = datetime.combine(d_text, datetime.min.time()).replace(hour=hh, minute=mm)
+    try:
+        # Validate inputs
+        hh, mm = map(int, t_text.split(":"))
+        candle_start = datetime.combine(d_text, datetime.min.time()).replace(hour=hh, minute=mm)
+        
+        if centre % step != 0:
+            st.error(f"{index_name} strikes move in steps of {step}. Centre strike must be a multiple of {step}.")
+            st.stop()
+
+        with st.spinner("Connecting to Angel One and fetching data..."):
+            smart = login()
+            st.success("Logged in successfully!")
             
-            if centre % step != 0:
-                st.error(f"{index_name} strikes move in steps of {step}. Centre strike must be a multiple of {step}.")
-                st.stop()
+            expiry, cmap = load_option_map(index_name, expiry_option)
+            st.info(f"Using {index_name} expiry ({expiry_option}): {expiry}")
 
-            with st.spinner("Connecting to Angel One and fetching data..."):
-                smart = login(API_KEY, CLIENT_CODE, PIN, TOTP_SECRET)
-                st.success("Logged in successfully!")
-                
-                expiry, cmap = load_option_map(index_name, expiry_option)
-                st.info(f"Using {index_name} expiry ({expiry_option}): {expiry}")
+            strikes = [centre + i * step for i in range(-N_AROUND, N_AROUND + 1)]
+            rows = []
+            
+            progress_bar = st.progress(0)
+            total_steps = len(strikes) * 2
+            current_step = 0
 
-                strikes = [centre + i * step for i in range(-N_AROUND, N_AROUND + 1)]
-                rows = []
-                
-                progress_bar = st.progress(0)
-                total_steps = len(strikes) * 2
-                current_step = 0
-
-                for strike in strikes:
-                    for otype in ("CE", "PE"):
-                        current_step += 1
-                        progress_bar.progress(current_step / total_steps)
-                        
-                        info = cmap.get((strike, otype))
-                        if not info:
-                            continue
-                        token, symbol = info
-                        c = fetch_candle(smart, INDICES[index_name]["opt_exch"], token, candle_start)
-                        rows.append(dict(
-                            candle_time=candle_start.strftime("%Y-%m-%d %H:%M"),
-                            index=index_name, expiry=str(expiry), strike=int(strike), type=otype,
-                            symbol=symbol,
-                            open=c["open"] if c else None, high=c["high"] if c else None,
-                            low=c["low"] if c else None, close=c["close"] if c else None,
-                            volume=c["volume"] if c else None))
-
-                df = pd.DataFrame(rows)
-                if not df.empty:
-                    df = df.sort_values(["strike", "type"]).reset_index(drop=True)
-                    st.subheader("Candle Data Table")
-                    st.dataframe(df, use_container_width=True)
+            for strike in strikes:
+                for otype in ("CE", "PE"):
+                    current_step += 1
+                    progress_bar.progress(current_step / total_steps)
                     
-                    compare_pairs(df, min_total=min_total)
-                else:
-                    st.warning("No data returned.")
+                    info = cmap.get((strike, otype))
+                    if not info:
+                        continue
+                    token, symbol = info
+                    c = fetch_candle(smart, INDICES[index_name]["opt_exch"], token, candle_start)
+                    rows.append(dict(
+                        candle_time=candle_start.strftime("%Y-%m-%d %H:%M"),
+                        index=index_name, expiry=str(expiry), strike=int(strike), type=otype,
+                        symbol=symbol,
+                        open=c["open"] if c else None, high=c["high"] if c else None,
+                        low=c["low"] if c else None, close=c["close"] if c else None,
+                        volume=c["volume"] if c else None))
 
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+            df = pd.DataFrame(rows)
+            if not df.empty:
+                df = df.sort_values(["strike", "type"]).reset_index(drop=True)
+                st.subheader("Candle Data Table")
+                st.dataframe(df, use_container_width=True)
+                
+                compare_pairs(df, min_total=min_total)
+            else:
+                st.warning("No data returned.")
+
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
