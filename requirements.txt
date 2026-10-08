@@ -1,0 +1,6 @@
+streamlit
+smartapi-python
+pyotp
+pandas
+requests
+websocket-client
