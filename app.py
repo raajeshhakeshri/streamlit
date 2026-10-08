@@ -9,20 +9,20 @@ import streamlit as st
 
 # ------------------------- STREAMLIT PAGE CONFIG ------------------------------
 st.set_page_config(
-    page_title="Angel One Option Candle Lookup",
+    page_title="Ultimatic Option Math Magic",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("Angel One SmartAPI - Option Candle & Pair Analyzer")
-st.markdown("Look up 5-minute candles for a strike and its -3 / +3 neighbours, and analyze CE/PE matching ranges.")
+st.title("Option Magic")
+st.markdown("Option Brahmastra")
 
-# ------------------------- FILL THESE IN ------------------------------
-API_KEY = "yY0XlSH0"
-CLIENT_CODE = "R60346234"
-PIN = "1175"
-TOTP_SECRET = "YQD6R3RVLMALZVWA6S64SU3VOI"
-# ----------------------------------------------------------------------
+# ------------------------- SECRETS ------------------------------
+API_KEY = st.secrets["angel"]["API_KEY"]
+CLIENT_CODE = st.secrets["angel"]["CLIENT_CODE"]
+PIN = st.secrets["angel"]["PIN"]
+TOTP_SECRET = st.secrets["angel"]["TOTP_SECRET"]
+# ----------------------------------------------------------------
 
 # ------------------------- SIDEBAR INPUTS ------------------------------
 st.sidebar.header("Lookup Parameters")
