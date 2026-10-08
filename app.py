@@ -18,10 +18,10 @@ st.title("Angel One SmartAPI - Option Candle & Pair Analyzer")
 st.markdown("Look up 5-minute candles for a strike and its -3 / +3 neighbours, and analyze CE/PE matching ranges.")
 
 # ------------------------- FILL THESE IN ------------------------------
-API_KEY = "YOUR_API_KEY"
-CLIENT_CODE = "YOUR_CLIENT_CODE"
-PIN = "YOUR_PIN"
-TOTP_SECRET = "YOUR_TOTP_SECRET"
+API_KEY = "yY0XlSH0"
+CLIENT_CODE = "R60346234"
+PIN = "1175"
+TOTP_SECRET = "YQD6R3RVLMALZVWA6S64SU3VOI"
 # ----------------------------------------------------------------------
 
 # ------------------------- SIDEBAR INPUTS ------------------------------
