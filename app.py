@@ -17,13 +17,14 @@ st.set_page_config(
 st.title("Angel One SmartAPI - Option Candle & Pair Analyzer")
 st.markdown("Look up 5-minute candles for a strike and its -3 / +3 neighbours, and analyze CE/PE matching ranges.")
 
-# ------------------------- SIDEBAR INPUTS ------------------------------
-st.sidebar.header("API Credentials")
-API_KEY = st.sidebar.text_input("API Key", type="password", value="")
-CLIENT_CODE = st.sidebar.text_input("Client Code", value="")
-PIN = st.sidebar.text_input("PIN", type="password", value="")
-TOTP_SECRET = st.sidebar.text_input("TOTP Secret", type="password", value="")
+# ------------------------- FILL THESE IN ------------------------------
+API_KEY = "YOUR_API_KEY"
+CLIENT_CODE = "YOUR_CLIENT_CODE"
+PIN = "YOUR_PIN"
+TOTP_SECRET = "YOUR_TOTP_SECRET"
+# ----------------------------------------------------------------------
 
+# ------------------------- SIDEBAR INPUTS ------------------------------
 st.sidebar.header("Lookup Parameters")
 INDICES = {
     "NIFTY": dict(opt_exch="NFO", step=50),
@@ -36,10 +37,21 @@ SCRIP_URL = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAP
 index_name = st.sidebar.selectbox("Index", list(INDICES.keys()))
 step = INDICES[index_name]["step"]
 
-t_text = st.sidebar.text_input("Candle Start Time (HH:MM)", value="09:20")
+# Generate 5-minute interval time options from 09:15 to 15:30
+time_options = []
+t_curr = datetime.strptime("09:15", "%H:%M")
+t_end = datetime.strptime("15:30", "%H:%M")
+while t_curr <= t_end:
+    time_options.append(t_curr.strftime("%H:%M"))
+    t_curr += timedelta(minutes=5)
+
+t_text = st.sidebar.selectbox("Candle Start Time (HH:MM)", options=time_options, index=1)
 d_text = st.sidebar.date_input("Date", value=date.today())
 centre = st.sidebar.number_input(f"Strike Price (multiple of {step})", value=25000, step=step)
-expiry_text = st.sidebar.text_input("Expiry (DDMMMYYYY, e.g. 13OCT2026, leave blank for nearest)", value="")
+
+# Expiry option dropdown for Current Week and Next Week
+expiry_option = st.sidebar.selectbox("Expiry", options=["Current Week", "Next Week"])
+
 min_total = st.sidebar.slider("Minimum Total for Pair Match", min_value=1, max_value=8, value=6)
 
 run_button = st.sidebar.button("Run Lookup & Analysis", type="primary")
@@ -54,7 +66,7 @@ def login(api_key, client_code, pin, totp_secret):
     return smart
 
 
-def load_option_map(index_name, expiry_text):
+def load_option_map(index_name, expiry_selection):
     """Return (expiry_date, {(strike, 'CE'/'PE'): (token, symbol)})."""
     df = pd.DataFrame(requests.get(SCRIP_URL, timeout=90).json())
     cfg = INDICES[index_name]
@@ -66,12 +78,8 @@ def load_option_map(index_name, expiry_text):
     if not expiries:
         raise RuntimeError("No running expiries found")
 
-    if expiry_text:
-        want = datetime.strptime(expiry_text.upper(), "%d%b%Y").date()
-        if want not in expiries:
-            raise ValueError(f"Expiry not found. Available: "
-                             f"{[e.strftime('%d%b%Y').upper() for e in expiries[:6]]}")
-        expiry = want
+    if expiry_selection == "Next Week" and len(expiries) > 1:
+        expiry = expiries[1]
     else:
         expiry = expiries[0]
 
@@ -153,16 +161,12 @@ def compare_pairs(df, min_total=6):
 # ------------------------- EXECUTION FLOW ------------------------------
 
 if run_button:
-    if not API_KEY or not CLIENT_CODE or not PIN or not TOTP_SECRET:
-        st.error("Please fill in all API credentials in the sidebar.")
+    if API_KEY == "YOUR_API_KEY" or CLIENT_CODE == "YOUR_CLIENT_CODE" or PIN == "YOUR_PIN" or TOTP_SECRET == "YOUR_TOTP_SECRET":
+        st.error("Please update your actual API credentials in the code under the FILL THESE IN section.")
     else:
         try:
             # Validate inputs
             hh, mm = map(int, t_text.split(":"))
-            if mm % 5 != 0:
-                st.error("Candle time must be a multiple of 5 minutes (e.g. 09:20, 09:25)")
-                st.stop()
-            
             candle_start = datetime.combine(d_text, datetime.min.time()).replace(hour=hh, minute=mm)
             
             if centre % step != 0:
@@ -173,8 +177,8 @@ if run_button:
                 smart = login(API_KEY, CLIENT_CODE, PIN, TOTP_SECRET)
                 st.success("Logged in successfully!")
                 
-                expiry, cmap = load_option_map(index_name, expiry_text)
-                st.info(f"Using {index_name} expiry: {expiry}")
+                expiry, cmap = load_option_map(index_name, expiry_option)
+                st.info(f"Using {index_name} expiry ({expiry_option}): {expiry}")
 
                 strikes = [centre + i * step for i in range(-N_AROUND, N_AROUND + 1)]
                 rows = []
